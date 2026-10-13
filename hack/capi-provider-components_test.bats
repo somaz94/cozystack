@@ -218,6 +218,55 @@ check_bootstrap_version() {
   check_patched_sums capi-providers-bootstrap CABPT bootstrap-components-talos.yaml metadata-talos.yaml
 }
 
+@test "Kairos bootstrap ships the version its Makefile vendored" {
+  check_bootstrap_version KAIROS_COMPONENT_VERSION bootstrap-kairos
+}
+
+@test "Kairos bootstrap components-kairos.gz matches the vendored bootstrap-components-kairos.yaml" {
+  check_pair capi-providers-bootstrap bootstrap-components-kairos.yaml components-kairos.gz
+}
+
+# The Kairos manifests are rendered from the upstream release the image is
+# built from, and the component version names that release. A bump of one
+# without the others ships manifests of one release running the code of another.
+@test "Kairos bootstrap version names the upstream release its image is built from" {
+  local dir="$REPO_ROOT/packages/system/capi-providers-bootstrap"
+  local release version
+  release="$(sed -n 's/^ARG VERSION=//p' "$dir/images/cluster-api-provider-kairos/Dockerfile")"
+  version="$(sed -n 's/^KAIROS_COMPONENT_VERSION *= *//p' "$dir/Makefile")"
+  [[ "$release" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Dockerfile pins no upstream release tag: '$release'" >&2; return 1; }
+  case "$version" in
+    "$release"-cozystack.[0-9]*) ;;
+    *) echo "KAIROS_COMPONENT_VERSION '$version' is not $release-cozystack.N" >&2; return 1 ;;
+  esac
+}
+
+# clusterctl maps a provider version to its contract through the release
+# series in the metadata, and refuses a version whose minor has no series.
+@test "Kairos bootstrap metadata declares the release series of the version it ships" {
+  local dir="$REPO_ROOT/packages/system/capi-providers-bootstrap"
+  local version major minor
+  version="$(sed -n 's/^KAIROS_COMPONENT_VERSION *= *//p' "$dir/Makefile")"
+  [[ "$version" =~ ^v([0-9]+)\.([0-9]+)\. ]] || { echo "unparseable version '$version'" >&2; return 1; }
+  major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}"
+  [ "$(yq -r ".releaseSeries[] | select(.major == $major and .minor == $minor) | .contract" "$dir/files/metadata-kairos.yaml")" = v1beta2 ] \
+    || { echo "files/metadata-kairos.yaml has no v1beta2 series for $major.$minor" >&2; return 1; }
+}
+
+@test "Kairos bootstrap manifests run the manager image this package builds" {
+  local dir="$REPO_ROOT/packages/system/capi-providers-bootstrap"
+  local tag version
+  tag="$(cat "$dir/images/cluster-api-provider-kairos.tag")"
+  version="$(sed -n 's/^KAIROS_COMPONENT_VERSION *= *//p' "$dir/Makefile")"
+  # Bare until the first build of a new version stamps its digest.
+  [[ "$tag" =~ /cluster-api-provider-kairos:${version//./\\.}(@sha256:[0-9a-f]{64})?$ ]] \
+    || { echo "images/cluster-api-provider-kairos.tag '$tag' is not $version" >&2; return 1; }
+  local images
+  images="$(sed -n 's/^ *image: //p' "$dir/files/bootstrap-components-kairos.yaml" | sort -u)"
+  [ "$images" = "$tag" ] \
+    || { echo "bootstrap-components-kairos.yaml runs '$images', the package builds '$tag'" >&2; return 1; }
+}
+
 @test "kubeadm bootstrap components.gz matches the vendored bootstrap-components.yaml" {
   check_pair capi-providers-bootstrap bootstrap-components.yaml
 }
