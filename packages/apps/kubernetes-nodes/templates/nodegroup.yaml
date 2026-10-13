@@ -5,8 +5,9 @@
   the control plane (Cluster / KamajiControlPlane / KubevirtCluster / PKI) lives in
   the `kubernetes` chart, and each worker pool is a separate `kubernetes-nodes`
   release. The pool objects (KubevirtMachineTemplate, MachineDeployment,
-  MachineHealthCheck, worker WorkloadMonitor) and the talos-reconcile Job that
-  produces the pool's TalosConfigTemplate are rendered here, wired to the parent
+  MachineHealthCheck, worker WorkloadMonitor) and the reconcile Job that
+  produces the pool's bootstrap template (talos-reconcile for a
+  TalosConfigTemplate, kairos-reconcile for a KairosConfigTemplate) are rendered here, wired to the parent
   cluster `kubernetes-<cluster>` by name convention (see _helpers.tpl). Every
   reference the monolithic chart made through $.Release.Name is reconstructed here
   as the parent clusterName so the objects are byte-identical to what the parent
@@ -17,22 +18,27 @@
   reach a different Talos release through osImage.builtin.version /
   osImage.factory.version, and that override is checked against the same matrix at
   the point it is resolved, below. Both call sites share one table, in
-  templates/_helpers.tpl.
+  templates/_helpers.tpl. A Kairos pool reads no talos.* at all.
 */}}
+{{- $class := include "kubernetes-nodes.nodeGroupClass" . | fromYaml }}
+{{- $isKairos := eq $class.os "kairos" }}
+{{- if not $isKairos }}
 {{- include "kubernetes-nodes.assertTalosSupportsKubernetes" (dict
       "talosVersion" .Values.talos.version
       "kubernetesVersion" .Values.version
       "remedy" "Bump 'version' or set talos.version explicitly.") }}
+{{- end }}
 {{- $clusterName := include "kubernetes-nodes.clusterName" . }}
 {{- $groupName := include "kubernetes-nodes.groupName" . }}
 {{- include "kubernetes-nodes.assertNoForeignPool" . }}
 {{- include "kubernetes-nodes.assertParentVersion" . }}
 {{- include "kubernetes-nodes.assertSubstrateMatches" . }}
+{{- include "kubernetes-nodes.assertOsMatches" (dict "root" . "class" $class) }}
 {{- $kubevirtmachinetemplateNames := list }}
 {{- /* Substrate selects which infrastructure provider renders this pool's
        machine template. Everything downstream of the template — autoscaler
        capacity annotations, kubelet reservations, MachineDeployment,
-       MachineHealthCheck, WorkloadMonitor, the talos-reconcile Job — is
+       MachineHealthCheck, WorkloadMonitor, the reconcile Job — is
        substrate-agnostic and rendered once, so the two paths differ only in
        the template object and the infrastructureRef that points at it. */}}
 {{- $substrate := .Values.substrate | default "kubevirt" }}
@@ -40,6 +46,21 @@
 {{-   fail (printf "substrate %q is not supported; use \"kubevirt\" or \"proxmox\"" $substrate) }}
 {{- end }}
 {{- $isProxmox := eq $substrate "proxmox" }}
+{{- if $isKairos }}
+{{-   if $isProxmox }}
+{{-     fail (printf "NodeGroupClass %q selects Kairos workers, which are supported on the kubevirt substrate only" $class.name) }}
+{{-   end }}
+{{-   $_ := include "kubernetes-nodes.kairosImage" (dict "root" . "class" $class) }}
+{{-   if .Values.osImage }}
+{{-     fail (printf "osImage selects a Talos image and does not apply to a pool on the Kairos NodeGroupClass %q" $class.name) }}
+{{-   end }}
+{{-   if .Values.kernelModules }}
+{{-     fail (printf "kernelModules are loaded through the Talos machine config and do not apply to a pool on the Kairos NodeGroupClass %q" $class.name) }}
+{{-   end }}
+{{-   if .Values.gpus }}
+{{-     fail (printf "gpus are not supported on the Kairos NodeGroupClass %q: its worker image carries no GPU driver" $class.name) }}
+{{-   end }}
+{{- end }}
 {{- if $isProxmox }}
 {{- /* Proxmox has no equivalent of a VirtualMachineClusterInstancetype, so the
          instancetype lookup that normally supplies effective CPU and memory has
@@ -209,6 +230,25 @@ spec:
       {{- end }}
       runStrategy: Always
       dataVolumeTemplates:
+      {{- if eq .nodeGroupClass.os "kairos" }}
+      - metadata:
+          name: disk-system
+          annotations:
+            cdi.kubevirt.io/storage.usePopulator: "false"
+        spec:
+          source:
+            registry:
+              {{- /* The CDI importer refuses a reference carrying both a tag
+                     and a digest; the digest alone pins the same image. */}}
+              url: {{ printf "docker://%s" (regexReplaceAll ":[^/:@]+@" (include "kubernetes-nodes.kairosImage" (dict "root" $ "class" .nodeGroupClass)) "@") | quote }}
+          storage:
+            resources:
+              requests:
+                storage: {{ .group.diskSize | default "20Gi" | quote }}
+            {{- with (.group.storageClass | default $.Values.storageClass) }}
+            storageClassName: {{ . | quote }}
+            {{- end }}
+      {{- else }}
       {{- /* This pool selects its worker OS image source via .Values.osImage (the
              WorkerImage union in values.yaml); every field defaults to the pool's
              talos.*:
@@ -536,6 +576,7 @@ spec:
             {{- with $cloneWorkerSC | default (.group.storageClass | default $.Values.storageClass) }}
             storageClassName: {{ . | quote }}
             {{- end }}
+      {{- end }}
       template:
         metadata:
           annotations:
@@ -564,6 +605,14 @@ spec:
           {{- end }}
           {{- end }}
           domain:
+            {{- /* Kairos worker disks are GPT images without a BIOS boot
+                   partition; SeaBIOS stops at "Booting from Hard Disk". */}}
+            {{- if eq .nodeGroupClass.os "kairos" }}
+            firmware:
+              bootloader:
+                efi:
+                  secureBoot: false
+            {{- end }}
             {{- if and .group.resources .group.resources.cpu }}
             cpu:
               threads: 1
@@ -904,12 +953,18 @@ spec:
        computed here from the same named template the Job renders into its
        heredoc, because TalosConfigTemplate.spec is immutable and can only ever
        be created, never updated — see _talosconfigtemplate.tpl. */}}
-{{- $talosConfigTemplateName := printf "%s-%s-%s" $clusterName $groupName (include "kubernetes.talosConfigTemplateHash" (dict "root" $ "group" $group)) }}
+{{- $bootstrapConfigName := "" }}
+{{- if $isKairos }}
+{{-   $bootstrapConfigName = printf "%s-%s-kairos-%s" $clusterName $groupName (include "kubernetes.kairosConfigTemplateHash" (dict "root" $ "group" $group "class" $class)) }}
+{{- else }}
+{{-   $bootstrapConfigName = printf "%s-%s-%s" $clusterName $groupName (include "kubernetes.talosConfigTemplateHash" (dict "root" $ "group" $group)) }}
+{{- end }}
 ---
 {{- $context := deepCopy $ }}
 {{- $_ := set $context "group" $group }}
 {{- $_ := set $context "groupName" $groupName }}
 {{- $_ := set $context "clusterName" $clusterName }}
+{{- $_ := set $context "nodeGroupClass" $class }}
 {{- /* These variables hold either kind despite their names. The content hash
        below is taken over the rendered template, so the names reach nothing
        outside this block. */}}
@@ -998,9 +1053,14 @@ spec:
     spec:
       bootstrap:
         configRef:
+          {{- if $isKairos }}
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+          kind: KairosConfigTemplate
+          {{- else }}
           apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
           kind: TalosConfigTemplate
-          name: {{ $talosConfigTemplateName }}
+          {{- end }}
+          name: {{ $bootstrapConfigName }}
           namespace: {{ $.Release.Namespace }}
       clusterName: {{ $clusterName }}
       infrastructureRef:
@@ -1008,7 +1068,7 @@ spec:
         kind: {{ $machineTemplateKind }}
         name: {{ $clusterName }}-{{ $groupName }}-{{ $kubevirtmachinetemplateHash }}
         namespace: {{ $.Release.Namespace }}
-      version: {{ include "kubernetes.versionMap" $}}
+      version: {{ include "kubernetes-nodes.kubernetesVersion" (dict "root" $ "class" $class) }}
 ---
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: MachineHealthCheck
