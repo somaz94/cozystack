@@ -15,6 +15,7 @@ import {
 import { customTemplates, customWidgets } from "./rjsf-registry.ts"
 import { addDynamicOptionWidgets } from "../lib/dynamic-options.ts"
 import { AdditionalPropertiesField } from "./AdditionalPropertiesField.tsx"
+import { CreationArrayField } from "./CreationArrayField.tsx"
 import { FreeformObjectField } from "./FreeformObjectField.tsx"
 import { ResourceQuotasField } from "./ResourceQuotasField.tsx"
 import { SourceField } from "./SourceField.tsx"
@@ -330,6 +331,7 @@ export const SchemaForm = forwardRef<SchemaFormHandle, SchemaFormProps>(function
   const customFields = useMemo(
     () => ({
       AdditionalPropertiesField: AdditionalPropertiesField,
+      ArrayField: CreationArrayField,
       FreeformObjectField: FreeformObjectField,
       ResourceQuotasField: ResourceQuotasField,
       SourceField: SourceField,

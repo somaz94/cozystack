@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react"
-import type { FieldProps, RJSFSchema, TemplatesType } from "@rjsf/utils"
+import { getDefaultFormState, type FieldProps, type RJSFSchema, type TemplatesType } from "@rjsf/utils"
 import { RJSF_ID_SEPARATOR } from "../lib/rjsf-ids.ts"
 import Form from "@rjsf/core"
 import validator from "@rjsf/validator-ajv8"
@@ -47,8 +47,10 @@ export function AdditionalPropertiesField(props: FieldProps) {
     }
 
     // Initialize with default value from schema
-    const defaultValue = itemSchema.type === "object" ? {} : itemSchema.default ?? ""
-    onChange({ ...formData, [newKey]: defaultValue })
+    const defaultValue = externalDefaults
+      ? getDefaultFormState(validator, itemSchema, undefined, itemSchema)
+      : itemSchema.type === "object" ? {} : itemSchema.default ?? ""
+    onChange({ ...formData, [newKey]: defaultValue === undefined ? "" : defaultValue })
     setNewKey("")
   }
 
@@ -108,6 +110,7 @@ export function AdditionalPropertiesField(props: FieldProps) {
                 validator={validator}
                 templates={templatesWithoutSubmit}
                 widgets={customWidgets}
+                fields={props.registry.fields}
                 onChange={(e) => handleValueChange(key, e.formData)}
                 disabled={isReadonly}
                 liveValidate={false}

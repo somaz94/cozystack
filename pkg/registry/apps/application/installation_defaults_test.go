@@ -100,7 +100,7 @@ func TestInstallationDefaultsCreate(t *testing.T) {
 }
 
 func TestInstallationDefaultsConfigurationErrors(t *testing.T) {
-	for _, raw := range []string{``, `{`, `null`, `[]`, `{} {}`, `{"widgets":null}`, `{"widgets":[]}`, `{"otherwidgets":false}`, `{"widgets":{"_cluster":{}}}`} {
+	for _, raw := range []string{``, `{`, `null`, `[]`, `{} {}`, `{"":{}}`, `{"_widgets":{}}`, `{"widgets":null}`, `{"widgets":[]}`, `{"otherwidgets":false}`, `{"widgets":{"_cluster":{}}}`, `{"otherwidgets":{"_cluster":{}}}`} {
 		t.Run(raw, func(t *testing.T) {
 			r := defaultsREST(t, defaultsConfig(raw))
 			called := false

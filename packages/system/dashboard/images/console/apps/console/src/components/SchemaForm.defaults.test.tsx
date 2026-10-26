@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { describe, expect, it } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { SchemaForm } from "./SchemaForm.tsx"
 import { prepareCreationSpec } from "../lib/application-defaults.ts"
 
@@ -72,6 +72,97 @@ describe("RJSF externally prepared defaults", () => {
     fireEvent.change(inputs[0], { target: { value: "" } })
     expect(JSON.parse(screen.getByTestId("spec").textContent ?? "")).toEqual({
       entries: { configured: { setting: "" }, empty: {} },
+    })
+  })
+
+  it("applies developer defaults to a new array row without installation defaults", () => {
+    const rowSchema = JSON.stringify({
+      type: "object",
+      properties: { rows: { type: "array", items: {
+        type: "object", required: ["mode"], properties: { mode: { type: "string", default: "safe" } },
+      } } },
+    })
+    function RowsHarness() {
+      const [spec, setSpec] = useState<unknown>(() => prepareCreationSpec(rowSchema, {}, {}))
+      return <>
+        <SchemaForm openAPISchema={rowSchema} formData={spec} onChange={setSpec} defaulting="external" />
+        <output data-testid="spec">{JSON.stringify(spec)}</output>
+      </>
+    }
+    render(<RowsHarness />)
+    fireEvent.click(screen.getByRole("button", { name: /add/i }))
+    expect(screen.getByLabelText(/^mode/)).toHaveValue("safe")
+    expect(JSON.parse(screen.getByTestId("spec").textContent ?? "")).toEqual({ rows: [{ mode: "safe" }] })
+  })
+
+  it.each([true, false])("initializes a new dictionary entry with object schema %s", (object) => {
+    const mapSchema = JSON.stringify({
+      type: "object",
+      properties: { entries: { type: "object", additionalProperties: object
+        ? { type: "object", required: ["mode"], properties: { mode: { type: "string", default: "safe" } } }
+        : { type: "string" },
+      } },
+    })
+    function MapHarness() {
+      const [spec, setSpec] = useState<unknown>({ entries: {} })
+      return <>
+        <SchemaForm openAPISchema={mapSchema} formData={spec} onChange={setSpec} defaulting="external" />
+        <output data-testid="spec">{JSON.stringify(spec)}</output>
+      </>
+    }
+    render(<MapHarness />)
+    fireEvent.change(screen.getByPlaceholderText("Enter key name..."), { target: { value: "new" } })
+    fireEvent.click(screen.getByRole("button", { name: /add/i }))
+    expect(JSON.parse(screen.getByTestId("spec").textContent ?? "")).toEqual({
+      entries: { new: object ? { mode: "safe" } : "" },
+    })
+  })
+
+  it("initializes a new array row in a dictionary entry", () => {
+    const mapSchema = JSON.stringify({
+      type: "object",
+      properties: { entries: { type: "object", additionalProperties: {
+        type: "object", properties: { rows: { type: "array", items: {
+          type: "object", required: ["mode"], properties: { mode: { type: "string", default: "safe" } },
+        } } },
+      } } },
+    })
+    function MapHarness() {
+      const [spec, setSpec] = useState<unknown>({ entries: { existing: { rows: [] } } })
+      return <>
+        <SchemaForm openAPISchema={mapSchema} formData={spec} onChange={setSpec} defaulting="external" />
+        <output data-testid="spec">{JSON.stringify(spec)}</output>
+      </>
+    }
+    render(<MapHarness />)
+    const fieldset = screen.getByText("rows").closest("fieldset")
+    expect(fieldset).not.toBeNull()
+    fireEvent.click(within(fieldset!).getByRole("button", { name: /add/i }))
+    expect(JSON.parse(screen.getByTestId("spec").textContent ?? "")).toEqual({
+      entries: { existing: { rows: [{ mode: "safe" }] } },
+    })
+  })
+
+  it("does not reapply defaults to an existing row's empty object", () => {
+    const rowSchema = JSON.stringify({
+      type: "object", properties: { rows: { type: "array", items: {
+        type: "object", properties: {
+          mode: { type: "string", default: "safe" },
+          nested: { type: "object", default: {}, properties: { value: { type: "string", default: "developer" } } },
+        },
+      } } },
+    })
+    function RowsHarness() {
+      const [spec, setSpec] = useState<unknown>({ rows: [{ mode: "user", nested: {} }] })
+      return <>
+        <SchemaForm openAPISchema={rowSchema} formData={spec} onChange={setSpec} defaulting="external" />
+        <output data-testid="spec">{JSON.stringify(spec)}</output>
+      </>
+    }
+    render(<RowsHarness />)
+    fireEvent.change(screen.getByLabelText("mode"), { target: { value: "edited" } })
+    expect(JSON.parse(screen.getByTestId("spec").textContent ?? "")).toEqual({
+      rows: [{ mode: "edited", nested: {} }],
     })
   })
 })

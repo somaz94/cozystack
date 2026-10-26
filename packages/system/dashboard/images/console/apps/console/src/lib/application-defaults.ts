@@ -47,7 +47,8 @@ export function prepareCreationSpec(
   return fillMissing(merged, isObject(populated) ? populated : {})
 }
 
-// The create page owns defaulting so RJSF must not refill explicitly empty objects.
+// Keep item defaults for new rows and map entries; the create page defaults
+// declared object fields without refilling explicitly empty objects.
 export function withoutFormDefaults(schema: unknown): unknown {
   if (!isObject(schema)) return schema
   const result = { ...schema }
@@ -59,7 +60,7 @@ export function withoutFormDefaults(schema: unknown): unknown {
       ))
     }
   }
-  for (const key of ["additionalProperties", "items", "additionalItems", "not", "if", "then", "else"]) {
+  for (const key of ["additionalItems", "not", "if", "then", "else"]) {
     if (isObject(result[key])) result[key] = withoutFormDefaults(result[key])
   }
   for (const key of ["oneOf", "anyOf", "allOf", "prefixItems"]) {

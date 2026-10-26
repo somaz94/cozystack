@@ -55,7 +55,7 @@ describe("application creation defaults", () => {
 
   it("copies schema nodes while preserving a property named default", () => {
     const original = { default: {}, properties: { default: { type: "string", default: "value" } }, additionalProperties: { default: 1 } }
-    expect(withoutFormDefaults(original)).toEqual({ properties: { default: { type: "string" } }, additionalProperties: {} })
+    expect(withoutFormDefaults(original)).toEqual({ properties: { default: { type: "string" } }, additionalProperties: { default: 1 } })
     expect(original.properties.default.default).toBe("value")
   })
 })
