@@ -1,3 +1,37 @@
+# Partial application specs, keyed by ApplicationDefinition.spec.application.plural.
+# Applies to every application, including external catalogs. Precedence:
+# user-supplied values > applicationDefaults > developer chart/schema defaults.
+# The API stores installation defaults in HelmRelease.spec.values only on creation
+# (including apply-create and dry-run previews). Changes here never modify or
+# re-render existing applications; edit their saved spec to change their settings.
+#
+# Nonempty objects merge recursively. Explicit {}, [], false, 0, "" and permitted
+# null values win. An empty object disables installation defaults for that object.
+# Existing normalization of required, non-nullable null fields still applies.
+# Terraform and other clients may send their own defaults; those are user values
+# and take precedence. Developer defaults retain their chart/schema behavior.
+#
+# The platform renders cozy-system/cozystack-application-defaults with defaults.json.
+# The dashboard previews and submits these values on create; edit uses saved values.
+# Missing ConfigMap means no installation defaults. Invalid JSON, non-object
+# entries, reserved top-level underscore fields and read failures block creation.
+# Authenticated dashboard readers can get this named ConfigMap: do not put secrets
+# here. These values are not forwarded through cozystack-values or valuesFrom.
+#
+# Example:
+# applicationDefaults:
+#   kubernetesnodes:
+#     talos:
+#       imageFactoryURL: https://factory.example.com
+#       installerRepository: registry.example.com/installer
+#       registryMirrors:
+#         ghcr.io:
+#           endpoints: [https://registry.example.com]
+#   postgreses:
+#     storageClass: replicated
+#     size: 20Gi
+applicationDefaults: {}
+
 sourceRef:
   kind: OCIRepository
   name: cozystack-platform

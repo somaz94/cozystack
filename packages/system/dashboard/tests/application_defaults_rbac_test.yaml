@@ -1,0 +1,39 @@
+suite: application defaults named object access
+templates:
+  - templates/application-defaults-rbac.yaml
+tests:
+  - it: grants get only on the named defaults configmap in cozy-system
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.namespace
+          value: cozy-system
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: ["configmaps"]
+              resourceNames: ["cozystack-application-defaults"]
+              verbs: ["get"]
+  - it: binds authenticated dashboard readers to the namespaced role
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: metadata.namespace
+          value: cozy-system
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: cozystack-application-defaults-reader
+      - equal:
+          path: subjects
+          value:
+            - apiGroup: rbac.authorization.k8s.io
+              kind: Group
+              name: system:authenticated

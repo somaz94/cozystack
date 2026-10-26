@@ -14,6 +14,8 @@ import { useTenantContext } from "../lib/tenant-context.tsx"
 import { useResourceBasePath } from "../lib/portal.ts"
 import { composeResource } from "../lib/app-resource.ts"
 import { prepareUpdateSpec } from "../lib/prepare-update.ts"
+import { useApplicationDefaults } from "../hooks/use-application-defaults.ts"
+import { isObject, prepareCreationSpec } from "../lib/application-defaults.ts"
 import { SchemaForm, type SchemaFormHandle } from "../components/SchemaForm.tsx"
 
 // Lazy-load the YAML editor so monaco and its workers are code-split into their
@@ -65,6 +67,37 @@ export function ApplicationOrderPage({
   }, [editMode])
 
   const plural = ad?.spec?.application.plural ?? ""
+  const isEditing = !!editMode
+  const defaults = useApplicationDefaults(!isEditing)
+  const openAPISchema = ad?.spec?.application.openAPISchema ?? ""
+  const [defaultsError, setDefaultsError] = useState<Error | null>(null)
+  const defaultsInput = useMemo(() => ({ plural, openAPISchema, data: defaults.data }), [plural, openAPISchema, defaults.data])
+  const [loadedDefaultsInput, setLoadedDefaultsInput] = useState<typeof defaultsInput | null>(null)
+
+  if (!isEditing && plural && !defaults.isLoading && !defaults.error && loadedDefaultsInput !== defaultsInput) {
+    setLoadedDefaultsInput(defaultsInput)
+    try {
+      const changedApplication = loadedDefaultsInput !== null && loadedDefaultsInput.plural !== plural
+      let document: unknown = null
+      if (mode === "yaml" && !changedApplication) {
+        try {
+          document = yaml.load(yamlText)
+        } catch (err) {
+          setYamlError((err as Error).message)
+        }
+      }
+      if (mode !== "yaml" || changedApplication || isObject(document)) {
+        const currentSpec = changedApplication ? {} : isObject(document) ? document.spec ?? {} : spec
+        const prepared = prepareCreationSpec(openAPISchema, currentSpec, defaults.data[plural] ?? {})
+        setSpec(prepared)
+        if (isObject(document)) setYamlText(yaml.dump({ ...document, spec: prepared }))
+        if (changedApplication) setMode("form")
+        setDefaultsError(null)
+      }
+    } catch (err) {
+      setDefaultsError(err as Error)
+    }
+  }
 
   const create = useK8sCreate({
     apiGroup: APPS_GROUP,
@@ -99,7 +132,9 @@ export function ApplicationOrderPage({
         spec?: unknown
       }
       if (parsed?.metadata?.name) setName(parsed.metadata.name)
-      if (parsed?.spec !== undefined) setSpec(parsed.spec)
+      if (parsed?.spec !== undefined) {
+        setSpec(editMode ? parsed.spec : prepareCreationSpec(openAPISchema, parsed.spec, defaults.data[plural] ?? {}))
+      }
       setYamlError(null)
       setMode("form")
     } catch (err) {
@@ -124,7 +159,14 @@ export function ApplicationOrderPage({
 
   const submit = async () => {
     if (!ad || !tenantNamespace) return
-    const snap = snapshot()
+    if (!editMode && (defaults.isLoading || defaults.error || defaultsError || loadedDefaultsInput?.plural !== plural)) return
+    let snap: ReturnType<typeof snapshot>
+    try {
+      snap = snapshot()
+    } catch (err) {
+      setYamlError((err as Error).message)
+      return
+    }
     if (!snap.name) {
       alert("Please set a resource name.")
       return
@@ -175,6 +217,16 @@ export function ApplicationOrderPage({
         Application <code>{appName}</code> not found.
       </div>
     )
+  }
+  if (!isEditing && (defaults.error || defaultsError)) {
+    return (
+      <div role="alert" className="p-8 text-red-600">
+        Unable to load application defaults: {(defaults.error ?? defaultsError)?.message}. Creation is unavailable.
+      </div>
+    )
+  }
+  if (!isEditing && (defaults.isLoading || loadedDefaultsInput?.plural !== plural)) {
+    return <div className="flex items-center gap-2 p-8 text-slate-500"><Spinner /> Loading application defaults…</div>
   }
 
   const icon = iconDataUrl(ad)
@@ -289,6 +341,7 @@ export function ApplicationOrderPage({
                   formData={spec}
                   onChange={setSpec}
                   immutableMode={editMode ? "enforce" : "off"}
+                  defaulting={editMode ? "schema" : "external"}
                 />
               </div>
             )}

@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cozystack-application-defaults-reader
+  namespace: cozy-system
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["cozystack-application-defaults"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cozystack-application-defaults-reader
+  namespace: cozy-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cozystack-application-defaults-reader
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:authenticated

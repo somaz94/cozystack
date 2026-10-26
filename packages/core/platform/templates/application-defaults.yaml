@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cozystack-application-defaults
+  namespace: cozy-system
+data:
+  defaults.json: {{ .Values.applicationDefaults | toJson | quote }}

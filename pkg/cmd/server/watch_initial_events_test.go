@@ -78,7 +78,7 @@ func startAppsServer(t *testing.T, rc *config.ResourceConfig) (*httptest.Server,
 	}
 	storage := map[string]rest.Storage{}
 	for i := range rc.Resources {
-		storage[rc.Resources[i].Application.Plural] = applicationstorage.NewREST(cli, cli, &rc.Resources[i])
+		storage[rc.Resources[i].Application.Plural] = applicationstorage.NewREST(cli, cli, nil, &rc.Resources[i])
 	}
 	if err := apiserver.InstallAppsAPIGroup(srv, storage); err != nil {
 		t.Fatal(err)

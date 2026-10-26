@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router"
 const h = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
+  defaults: { data: { "defaults.json": "{}" } },
   ad: {
     spec: {
       application: {
@@ -38,6 +39,7 @@ vi.mock("../lib/app-definitions.ts", () => ({
 vi.mock("@cozystack/k8s-client", () => ({
   useK8sCreate: () => ({ mutateAsync: h.create, isPending: false }),
   useK8sUpdate: () => ({ mutateAsync: h.update, isPending: false }),
+  useK8sGet: () => ({ data: h.defaults, isLoading: false, error: null }),
   K8sApiError: class extends Error {},
 }))
 vi.mock("../components/YamlEditor.tsx", () => ({

@@ -91,16 +91,17 @@ const (
 
 // REST implements the RESTStorage interface for Application resources
 type REST struct {
-	c             client.Client
-	w             client.WithWatch
-	gvr           schema.GroupVersionResource
-	gvk           schema.GroupVersionKind
-	kindName      string
-	singularName  string
-	releaseConfig config.ReleaseConfig
-	specSchema    *structuralschema.Structural
-	nameSchema    *validation.NameSchema
-	nameSchemaErr error
+	c              client.Client
+	w              client.WithWatch
+	defaultsReader client.Reader
+	gvr            schema.GroupVersionResource
+	gvk            schema.GroupVersionKind
+	kindName       string
+	singularName   string
+	releaseConfig  config.ReleaseConfig
+	specSchema     *structuralschema.Structural
+	nameSchema     *validation.NameSchema
+	nameSchemaErr  error
 }
 
 // buildSpecSchema parses an OpenAPI-v3 JSON schema string and returns the
@@ -133,7 +134,7 @@ func buildSpecSchema(raw string) (*structuralschema.Structural, error) {
 }
 
 // NewREST creates a new REST storage for Application with specific configuration
-func NewREST(c client.Client, w client.WithWatch, config *config.Resource) *REST {
+func NewREST(c client.Client, w client.WithWatch, defaultsReader client.Reader, config *config.Resource) *REST {
 	specSchema, err := buildSpecSchema(config.Application.OpenAPISchema)
 	if err != nil {
 		klog.Errorf("Failed to build spec schema: %v", err)
@@ -146,8 +147,9 @@ func NewREST(c client.Client, w client.WithWatch, config *config.Resource) *REST
 	}
 
 	return &REST{
-		c: c,
-		w: w,
+		c:              c,
+		w:              w,
+		defaultsReader: defaultsReader,
 		gvr: schema.GroupVersionResource{
 			Group:    appsv1alpha1.GroupName,
 			Version:  "v1alpha1",
@@ -194,6 +196,13 @@ func (r *REST) Create(ctx context.Context, obj runtime.Object, createValidation 
 	// Validate name length against Helm release and label limits
 	if nameLenErrs := r.validateNameLength(app.Name); len(nameLenErrs) > 0 {
 		return nil, apierrors.NewInvalid(r.gvk.GroupKind(), app.Name, nameLenErrs)
+	}
+
+	if err := r.applyInstallationDefaults(ctx, app); err != nil {
+		if apierrors.IsBadRequest(err) {
+			return nil, err
+		}
+		return nil, apierrors.NewInternalError(err)
 	}
 
 	// For Tenant applications, also validate that the computed workload
