@@ -36,9 +36,32 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
 
 type nodeDefaultsRender struct{ name, diskURL, script string }
+
+func nodeDefaultsREST(t *testing.T, objects ...client.Object) *REST {
+	t.Helper()
+	raw, err := os.ReadFile("../../../../packages/system/kubernetes-nodes-rd/cozyrds/kubernetes-nodes.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var definition struct {
+		Spec struct {
+			Application config.ApplicationConfig
+			Release     struct{ Prefix string }
+		}
+	}
+	if err := yaml.Unmarshal(raw, &definition); err != nil {
+		t.Fatal(err)
+	}
+	r := defaultsREST(t, objects...)
+	return NewREST(r.c, r.w, r.c, &config.Resource{
+		Application: definition.Spec.Application,
+		Release:     config.ReleaseConfig{Prefix: definition.Spec.Release.Prefix},
+	})
+}
 
 func renderStoredNodeDefaults(t *testing.T, values *apiextv1.JSON) nodeDefaultsRender {
 	t.Helper()
@@ -93,12 +116,7 @@ func renderStoredNodeDefaults(t *testing.T, values *apiextv1.JSON) nodeDefaultsR
 }
 
 func TestInstallationDefaultsKubernetesNodesPersistedRender(t *testing.T) {
-	r := defaultsREST(t, defaultsConfig(`{"kubernetesnodes":{"talos":{"imageFactoryURL":"https://factory.example.com","installerRepository":"registry.example.com/installer","registryMirrors":{"ghcr.io":{"endpoints":["https://registry.example.com"]}}}}}`))
-	r = NewREST(r.c, r.w, r.c, &config.Resource{
-		Application: config.ApplicationConfig{Kind: "KubernetesNodes", Plural: "kubernetesnodes", Singular: "kubernetesnodes"},
-		Release:     config.ReleaseConfig{Prefix: "kubernetes-nodes-"},
-	})
-	r.specSchema = chartSpecSchema(t, "kubernetes-nodes")
+	r := nodeDefaultsREST(t, defaultsConfig(`{"kubernetesnodeses":{"talos":{"imageFactoryURL":"https://factory.example.com","installerRepository":"registry.example.com/installer","registryMirrors":{"ghcr.io":{"endpoints":["https://registry.example.com"]}}}}}`))
 	ctx := request.WithNamespace(context.Background(), "tenant-test")
 	app := defaultsApp(`{"cluster":"demo","version":"v1.35","instanceType":"","resources":{"cpu":"2","memory":"4Gi"}}`)
 	app.Name = "demo-md0"
@@ -120,7 +138,7 @@ func TestInstallationDefaultsKubernetesNodesPersistedRender(t *testing.T) {
 	if err := r.c.Get(ctx, client.ObjectKeyFromObject(defaultsConfig("")), cm); err != nil {
 		t.Fatal(err)
 	}
-	cm.Data["defaults.json"] = `{"kubernetesnodes":{"talos":{"imageFactoryURL":"https://new-factory.example.com","installerRepository":"new-registry.example.com/installer"}}}`
+	cm.Data["defaults.json"] = `{"kubernetesnodeses":{"talos":{"imageFactoryURL":"https://new-factory.example.com","installerRepository":"new-registry.example.com/installer"}}}`
 	if err := r.c.Update(ctx, cm); err != nil {
 		t.Fatal(err)
 	}
@@ -151,12 +169,7 @@ func TestInstallationDefaultsKubernetesNodesPersistedRender(t *testing.T) {
 }
 
 func TestInstallationDefaultsLegacyKubernetesNodesRender(t *testing.T) {
-	r := defaultsREST(t)
-	r = NewREST(r.c, r.w, r.c, &config.Resource{
-		Application: config.ApplicationConfig{Kind: "KubernetesNodes", Plural: "kubernetesnodes", Singular: "kubernetesnodes"},
-		Release:     config.ReleaseConfig{Prefix: "kubernetes-nodes-"},
-	})
-	r.specSchema = chartSpecSchema(t, "kubernetes-nodes")
+	r := nodeDefaultsREST(t)
 	ctx := request.WithNamespace(context.Background(), "tenant-test")
 	app := defaultsApp(`{"cluster":"demo","version":"v1.35","instanceType":"","resources":{"cpu":"2","memory":"4Gi"}}`)
 	app.Name = "demo-md0"
@@ -171,7 +184,7 @@ func TestInstallationDefaultsLegacyKubernetesNodesRender(t *testing.T) {
 	}
 	stored := hr.Spec.Values.DeepCopy()
 	before := renderStoredNodeDefaults(t, stored)
-	if err := r.c.Create(ctx, defaultsConfig(`{"kubernetesnodes":{"talos":{"imageFactoryURL":"https://factory.example.com","installerRepository":"registry.example.com/installer","registryMirrors":{"ghcr.io":{"endpoints":["https://registry.example.com"]}}}}}`)); err != nil {
+	if err := r.c.Create(ctx, defaultsConfig(`{"kubernetesnodeses":{"talos":{"imageFactoryURL":"https://factory.example.com","installerRepository":"registry.example.com/installer","registryMirrors":{"ghcr.io":{"endpoints":["https://registry.example.com"]}}}}}`)); err != nil {
 		t.Fatal(err)
 	}
 	current, err := r.Get(ctx, app.Name, &metav1.GetOptions{})

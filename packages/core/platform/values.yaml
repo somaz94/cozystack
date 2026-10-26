@@ -20,7 +20,7 @@
 #
 # Example:
 # applicationDefaults:
-#   kubernetesnodes:
+#   kubernetesnodeses:
 #     talos:
 #       imageFactoryURL: https://factory.example.com
 #       installerRepository: registry.example.com/installer
