@@ -878,40 +878,25 @@ func buildSolver(tgw *gatewayv1alpha1.TenantGateway) (*cmacmev1.ACMEChallengeSol
 // route's hostname (harbor.alice.example.com is two labels deeper
 // than the wildcard accepts).
 func (r *Reconciler) renderWildcardCertificate(tgw *gatewayv1alpha1.TenantGateway, childApexes []string) (*cmv1.Certificate, error) {
-	dnsNames := []string{tgw.Spec.Apex, "*." + tgw.Spec.Apex}
-	seen := map[string]struct{}{
-		tgw.Spec.Apex:        {},
-		"*." + tgw.Spec.Apex: {},
-	}
-	// Built up front: childApexes is sorted by name, so a covering
-	// wildcard can come after the apex it covers.
-	wildcards := map[string]struct{}{"*." + tgw.Spec.Apex: {}}
-	for _, apex := range childApexes {
+	apexes := append([]string{tgw.Spec.Apex}, childApexes...)
+	// A child can use a custom domain whose wildcard covers the gateway apex.
+	wildcards := make(map[string]struct{}, len(apexes))
+	for _, apex := range apexes {
 		if apex != "" {
 			wildcards["*."+apex] = struct{}{}
 		}
 	}
-	for _, apex := range childApexes {
-		if apex == "" {
+	var dnsNames []string
+	seen := make(map[string]bool, len(apexes))
+	for _, apex := range apexes {
+		if apex == "" || seen[apex] {
 			continue
 		}
-		// Skip a child whose host label collides with the parent
-		// apex (mis-labelled namespace, or two tenants briefly
-		// sharing an apex during a rename). cert-manager rejects
-		// duplicate dnsNames; the inheriting tenant still attaches
-		// via the parent SANs already present.
-		_, dup := seen[apex]
-		// Let's Encrypt refuses the whole order when it lists a name
-		// that a wildcard in the same order already covers.
-		if !dup && !coveredByWildcard(wildcards, apex) {
+		seen[apex] = true
+		if !coveredByWildcard(wildcards, apex) {
 			dnsNames = append(dnsNames, apex)
-			seen[apex] = struct{}{}
 		}
-		wildcard := "*." + apex
-		if _, dup := seen[wildcard]; !dup {
-			dnsNames = append(dnsNames, wildcard)
-			seen[wildcard] = struct{}{}
-		}
+		dnsNames = append(dnsNames, "*."+apex)
 	}
 	cert := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{

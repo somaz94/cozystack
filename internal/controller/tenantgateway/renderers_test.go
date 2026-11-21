@@ -216,6 +216,11 @@ func TestRenderWildcardCertificate_SkipsChildApexCoveredByWildcard(t *testing.T)
 		want        []string
 	}{
 		{
+			name:        "an inheriting tenant uses the parent domain of the gateway apex",
+			childApexes: []string{"example.com"},
+			want:        []string{"*.mgmt.example.com", "example.com", "*.example.com"},
+		},
+		{
 			name:        "child one label below the parent",
 			childApexes: []string{"ci.mgmt.example.com"},
 			want:        []string{"mgmt.example.com", "*.mgmt.example.com", "*.ci.mgmt.example.com"},
